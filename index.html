@@ -4,13 +4,14 @@
 <meta charset="UTF-8">
 <title>Nova Services</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/lucide-static/font/lucide.css">
 
-<!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+/* FIREBASE */
 const firebaseConfig = {
   apiKey: "AIzaSyD8wFHf9XbX4dhnprngXcnK53WhSbhJtyQ",
   authDomain: "novaservices-819e8.firebaseapp.com",
@@ -25,41 +26,51 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const WEBHOOK_URL = "PUT_YOUR_DISCORD_WEBHOOK_HERE";
-const WORKINK_URL = "https://workink.net/YOUR_LINK";
+/* CONFIG */
+const WEBHOOK = "https://discord.com/api/webhooks/1455489501852864645/Nc3JTy3nCiFLZ2RgKqBTvzBWcb6WLFX5qyeToE5lSBcKA5mL3f5SORLItIo9VKvV2pTa";
+const WORKINK = "https://work.ink/268k/10-tokens";
 
-/* UI HELPERS */
+/* PAGE SWITCH */
 window.show = id => {
   document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
   document.getElementById(id).classList.remove("hidden");
 };
 
 /* AUTH */
+window.login = async () =>
+  signInWithEmailAndPassword(auth, loginEmail.value, loginPassword.value);
+
 window.register = async () => {
-  const e = email.value, p = password.value;
-  const cred = await createUserWithEmailAndPassword(auth, e, p);
+  const cred = await createUserWithEmailAndPassword(auth, regEmail.value, regPassword.value);
   await setDoc(doc(db, "users", cred.user.uid), {
-    email: e,
+    email: cred.user.email,
     tokens: 0,
     lastClaim: null
   });
 };
 
-window.login = async () => {
-  await signInWithEmailAndPassword(auth, email.value, password.value);
+/* LOGOUT */
+window.logout = () => signOut(auth);
+
+/* WORKINK FLOW */
+window.goWorkink = () => {
+  sessionStorage.setItem("workinkVisited", "true");
+  window.open(WORKINK);
 };
 
-window.logout = async () => signOut(auth);
-
-/* CLAIM */
+/* CLAIM WITH TIMER */
 window.claim = async () => {
-  const u = auth.currentUser;
-  const ref = doc(db, "users", u.uid);
+  if (!sessionStorage.getItem("workinkVisited")) {
+    alert("Complete Work.ink first.");
+    return;
+  }
+
+  const ref = doc(db, "users", auth.currentUser.uid);
   const snap = await getDoc(ref);
 
   const last = snap.data().lastClaim?.toMillis();
   if (last && Date.now() - last < 86400000) {
-    alert("Already claimed today");
+    alert("Cooldown active.");
     return;
   }
 
@@ -68,125 +79,147 @@ window.claim = async () => {
     lastClaim: serverTimestamp()
   });
 
+  sessionStorage.removeItem("workinkVisited");
   loadUser();
 };
 
-/* ORDER */
-async function validRoblox(id) {
-  try {
-    const r = await fetch(`https://users.roblox.com/v1/users/${id}`);
-    return r.ok;
-  } catch { return false; }
+/* TIMER */
+function updateTimer(last) {
+  if (!last) return timer.innerText = "Ready";
+  const diff = 86400000 - (Date.now() - last);
+  if (diff <= 0) return timer.innerText = "Ready";
+
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor(diff % 3600000 / 60000);
+  const s = Math.floor(diff % 60000 / 1000);
+  timer.innerText = `${h}h ${m}m ${s}s`;
 }
 
-window.order = async () => {
-  const u = auth.currentUser;
-  const ref = doc(db, "users", u.uid);
+/* VALIDATION */
+async function validate(id, type) {
+  const url = type === "user"
+    ? `https://users.roblox.com/v1/users/${id}`
+    : `https://groups.roblox.com/v1/groups/${id}`;
+  const r = await fetch(url);
+  return r.ok;
+}
+
+/* ORDER */
+window.placeOrder = async type => {
+  const target = document.getElementById(type+"Id").value;
+  const amount = Number(document.getElementById(type+"Amount").value);
+  const ref = doc(db, "users", auth.currentUser.uid);
   const snap = await getDoc(ref);
 
-  const type = orderType.value;
-  const target = targetId.value;
-  const amount = Number(amountInput.value);
-
-  if (snap.data().tokens < amount) {
-    alert("Not enough tokens");
-    return;
-  }
-
-  if (!(await validRoblox(target))) {
-    alert("Invalid Roblox ID");
-    return;
-  }
+  if (snap.data().tokens < amount) return alert("Not enough tokens");
+  if (!(await validate(target, type))) return alert("Invalid ID");
 
   await updateDoc(ref, { tokens: increment(-amount) });
 
-  await fetch(WEBHOOK_URL, {
+  await fetch(WEBHOOK, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {"Content-Type":"application/json"},
     body: JSON.stringify({
       embeds: [{
         title: "📦 New Order",
         color: 16711680,
         fields: [
-          { name: "User", value: u.email },
+          { name: "Email", value: auth.currentUser.email },
+          { name: "Origin", value: "Website" },
           { name: "Type", value: type },
-          { name: "Target ID", value: target },
+          { name: "Target", value: target },
           { name: "Amount", value: amount.toString() }
         ]
       }]
     })
   });
 
-  alert("Order placed!");
   loadUser();
+  alert("Order placed");
 };
 
-/* LOAD USER */
+/* LOAD */
 async function loadUser() {
-  const u = auth.currentUser;
-  const snap = await getDoc(doc(db, "users", u.uid));
+  const snap = await getDoc(doc(db, "users", auth.currentUser.uid));
   tokens.innerText = snap.data().tokens;
+  updateTimer(snap.data().lastClaim?.toMillis());
 }
 
-onAuthStateChanged(auth, user => {
-  if (user) {
-    show("dashboard");
-    loadUser();
-  } else show("landing");
-});
+onAuthStateChanged(auth, u => u ? (show("dashboard"), loadUser()) : show("lander"));
 </script>
 </head>
 
 <body class="bg-black text-white">
 
-<!-- LANDING -->
-<div id="landing" class="page min-h-screen flex flex-col items-center justify-center">
+<!-- LANDER -->
+<section id="lander" class="page min-h-screen flex flex-col items-center justify-center text-center space-y-8">
   <h1 class="text-6xl font-bold">
-    <span class="text-white">Nova</span>
-    <span class="text-red-500">Services</span>
+    Nova<span class="text-red-500">Services</span>
   </h1>
-  <p class="text-gray-400 mt-4">Free Roblox Followers • High Uptime</p>
+  <p class="text-gray-400">Free Roblox Followers • High Uptime • Automated</p>
 
-  <div class="mt-8 space-y-4 w-80">
-    <input id="email" placeholder="Email" class="w-full p-3 bg-zinc-900 rounded">
-    <input id="password" type="password" placeholder="Password" class="w-full p-3 bg-zinc-900 rounded">
-    <button onclick="login()" class="w-full bg-red-600 py-3 rounded">Login</button>
-    <button onclick="register()" class="w-full border border-zinc-700 py-3 rounded">Register</button>
+  <div class="grid grid-cols-3 gap-6 max-w-4xl">
+    <div class="bg-zinc-900 p-6 rounded-2xl">⚡ Fast Delivery</div>
+    <div class="bg-zinc-900 p-6 rounded-2xl">🛡 Secure Tokens</div>
+    <div class="bg-zinc-900 p-6 rounded-2xl">📦 Automated Orders</div>
   </div>
-</div>
+
+  <button onclick="show('auth')" class="bg-red-600 px-10 py-4 rounded-2xl">
+    Get Started
+  </button>
+</section>
+
+<!-- AUTH -->
+<section id="auth" class="page hidden min-h-screen flex items-center justify-center gap-10">
+  <div class="bg-zinc-900 p-8 rounded-3xl w-96">
+    <h2 class="text-2xl mb-4">Login</h2>
+    <input id="loginEmail" placeholder="Email" class="w-full p-3 bg-black rounded-xl mb-3">
+    <input id="loginPassword" type="password" placeholder="Password" class="w-full p-3 bg-black rounded-xl mb-4">
+    <button onclick="login()" class="w-full bg-red-600 py-3 rounded-xl">Login</button>
+  </div>
+
+  <div class="bg-zinc-900 p-8 rounded-3xl w-96 border border-red-500">
+    <h2 class="text-2xl mb-4 text-red-400">Register</h2>
+    <input id="regEmail" placeholder="Email" class="w-full p-3 bg-black rounded-xl mb-3">
+    <input id="regPassword" type="password" placeholder="Password" class="w-full p-3 bg-black rounded-xl mb-4">
+    <button onclick="register()" class="w-full bg-zinc-800 py-3 rounded-xl">Create Account</button>
+  </div>
+</section>
 
 <!-- DASHBOARD -->
-<div id="dashboard" class="page hidden min-h-screen p-10">
-  <div class="flex justify-between mb-10">
-    <h2 class="text-3xl font-bold">Dashboard</h2>
+<section id="dashboard" class="page hidden p-10 space-y-10">
+  <div class="flex justify-between">
+    <h2 class="text-3xl">Dashboard</h2>
     <button onclick="logout()" class="text-red-400">Logout</button>
   </div>
 
-  <div class="grid grid-cols-3 gap-6 mb-10">
-    <div class="bg-zinc-900 p-6 rounded">Tokens<br><span id="tokens" class="text-3xl text-red-500">0</span></div>
-    <div class="bg-zinc-900 p-6 rounded">System<br><span class="text-green-400">Online</span></div>
-    <div class="bg-zinc-900 p-6 rounded">Daily<br>10 Tokens</div>
+  <div class="grid grid-cols-3 gap-6">
+    <div class="bg-zinc-900 p-6 rounded-2xl">💰 Tokens<br><span id="tokens" class="text-3xl text-red-500">0</span></div>
+    <div class="bg-zinc-900 p-6 rounded-2xl">⏱ Claim In<br><span id="timer">Ready</span></div>
+    <div class="bg-zinc-900 p-6 rounded-2xl">🟢 System Online</div>
   </div>
 
-  <div class="bg-zinc-900 p-6 rounded mb-10 flex justify-between">
-    <a href="#" onclick="window.open(WORKINK_URL)" class="bg-zinc-800 px-6 py-3 rounded">Work.ink</a>
-    <button onclick="claim()" class="bg-red-600 px-6 py-3 rounded">Claim</button>
+  <div class="flex gap-4">
+    <button onclick="goWorkink()" class="bg-zinc-800 px-6 py-3 rounded-xl">Work.ink</button>
+    <button onclick="claim()" class="bg-red-600 px-6 py-3 rounded-xl">Claim</button>
   </div>
 
-  <div class="bg-zinc-900 p-8 rounded space-y-4">
-    <select id="orderType" class="w-full p-3 bg-black rounded">
-      <option value="followers">Followers</option>
-      <option value="group">Group Members</option>
-    </select>
+  <div class="grid grid-cols-2 gap-6">
+    <div class="bg-zinc-900 p-6 rounded-2xl">
+      <h3 class="mb-4">Followers</h3>
+      <input id="userId" placeholder="User ID" class="w-full p-3 bg-black rounded mb-3">
+      <input id="userAmount" type="number" placeholder="Amount" class="w-full p-3 bg-black rounded mb-3">
+      <button onclick="placeOrder('user')" class="w-full bg-red-600 py-3 rounded-xl">Order</button>
+    </div>
 
-    <input id="targetId" placeholder="Roblox User/Group ID" class="w-full p-3 bg-black rounded">
-    <input id="amountInput" type="number" placeholder="Amount" class="w-full p-3 bg-black rounded">
-
-    <button onclick="order()" class="w-full bg-red-600 py-4 rounded font-bold">
-      Place Order
-    </button>
+    <div class="bg-zinc-900 p-6 rounded-2xl">
+      <h3 class="mb-4">Group Members</h3>
+      <input id="groupId" placeholder="Group ID" class="w-full p-3 bg-black rounded mb-3">
+      <input id="groupAmount" type="number" placeholder="Amount" class="w-full p-3 bg-black rounded mb-3">
+      <button onclick="placeOrder('group')" class="w-full bg-red-600 py-3 rounded-xl">Order</button>
+    </div>
   </div>
-</div>
+</section>
 
 </body>
 </html>
