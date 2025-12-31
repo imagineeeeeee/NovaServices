@@ -1,42 +1,192 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Nova Services</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="UTF-8">
+<title>Nova Services</title>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD8wFHf9XbX4dhnprngXcnK53WhSbhJtyQ",
+  authDomain: "novaservices-819e8.firebaseapp.com",
+  projectId: "novaservices-819e8",
+  storageBucket: "novaservices-819e8.firebasestorage.app",
+  messagingSenderId: "574173549200",
+  appId: "1:574173549200:web:126b6b1b3681c670943e15",
+  measurementId: "G-LGKDDP8XH5"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const WEBHOOK_URL = "PUT_YOUR_DISCORD_WEBHOOK_HERE";
+const WORKINK_URL = "https://workink.net/YOUR_LINK";
+
+/* UI HELPERS */
+window.show = id => {
+  document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
+  document.getElementById(id).classList.remove("hidden");
+};
+
+/* AUTH */
+window.register = async () => {
+  const e = email.value, p = password.value;
+  const cred = await createUserWithEmailAndPassword(auth, e, p);
+  await setDoc(doc(db, "users", cred.user.uid), {
+    email: e,
+    tokens: 0,
+    lastClaim: null
+  });
+};
+
+window.login = async () => {
+  await signInWithEmailAndPassword(auth, email.value, password.value);
+};
+
+window.logout = async () => signOut(auth);
+
+/* CLAIM */
+window.claim = async () => {
+  const u = auth.currentUser;
+  const ref = doc(db, "users", u.uid);
+  const snap = await getDoc(ref);
+
+  const last = snap.data().lastClaim?.toMillis();
+  if (last && Date.now() - last < 86400000) {
+    alert("Already claimed today");
+    return;
+  }
+
+  await updateDoc(ref, {
+    tokens: increment(10),
+    lastClaim: serverTimestamp()
+  });
+
+  loadUser();
+};
+
+/* ORDER */
+async function validRoblox(id) {
+  try {
+    const r = await fetch(`https://users.roblox.com/v1/users/${id}`);
+    return r.ok;
+  } catch { return false; }
+}
+
+window.order = async () => {
+  const u = auth.currentUser;
+  const ref = doc(db, "users", u.uid);
+  const snap = await getDoc(ref);
+
+  const type = orderType.value;
+  const target = targetId.value;
+  const amount = Number(amountInput.value);
+
+  if (snap.data().tokens < amount) {
+    alert("Not enough tokens");
+    return;
+  }
+
+  if (!(await validRoblox(target))) {
+    alert("Invalid Roblox ID");
+    return;
+  }
+
+  await updateDoc(ref, { tokens: increment(-amount) });
+
+  await fetch(WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      embeds: [{
+        title: "📦 New Order",
+        color: 16711680,
+        fields: [
+          { name: "User", value: u.email },
+          { name: "Type", value: type },
+          { name: "Target ID", value: target },
+          { name: "Amount", value: amount.toString() }
+        ]
+      }]
+    })
+  });
+
+  alert("Order placed!");
+  loadUser();
+};
+
+/* LOAD USER */
+async function loadUser() {
+  const u = auth.currentUser;
+  const snap = await getDoc(doc(db, "users", u.uid));
+  tokens.innerText = snap.data().tokens;
+}
+
+onAuthStateChanged(auth, user => {
+  if (user) {
+    show("dashboard");
+    loadUser();
+  } else show("landing");
+});
+</script>
 </head>
 
 <body class="bg-black text-white">
 
-<nav class="flex justify-between items-center px-10 py-6">
-  <h1 class="text-2xl font-bold text-red-500">Nova<span class="text-white">Services</span></h1>
-  <button onclick="login()" class="bg-red-600 px-5 py-2 rounded-lg">Login with Roblox</button>
-</nav>
-
-<section class="text-center mt-32">
+<!-- LANDING -->
+<div id="landing" class="page min-h-screen flex flex-col items-center justify-center">
   <h1 class="text-6xl font-bold">
     <span class="text-white">Nova</span>
     <span class="text-red-500">Services</span>
   </h1>
-  <p class="mt-4 text-gray-400">Free Roblox Followers • High Uptime • Automated</p>
+  <p class="text-gray-400 mt-4">Free Roblox Followers • High Uptime</p>
 
-  <div class="mt-8 flex justify-center gap-4">
-    <a href="/dashboard.html" class="bg-red-600 px-8 py-3 rounded-xl">Get Started</a>
-    <a href="#" class="border border-gray-700 px-8 py-3 rounded-xl">Join Discord</a>
+  <div class="mt-8 space-y-4 w-80">
+    <input id="email" placeholder="Email" class="w-full p-3 bg-zinc-900 rounded">
+    <input id="password" type="password" placeholder="Password" class="w-full p-3 bg-zinc-900 rounded">
+    <button onclick="login()" class="w-full bg-red-600 py-3 rounded">Login</button>
+    <button onclick="register()" class="w-full border border-zinc-700 py-3 rounded">Register</button>
   </div>
-</section>
+</div>
 
-<section class="mt-32 grid grid-cols-3 gap-8 px-16">
-  <div class="bg-zinc-900 p-6 rounded-xl">⚡ Free Followers</div>
-  <div class="bg-zinc-900 p-6 rounded-xl">🛡 Secure Login</div>
-  <div class="bg-zinc-900 p-6 rounded-xl">📦 Token System</div>
-</section>
+<!-- DASHBOARD -->
+<div id="dashboard" class="page hidden min-h-screen p-10">
+  <div class="flex justify-between mb-10">
+    <h2 class="text-3xl font-bold">Dashboard</h2>
+    <button onclick="logout()" class="text-red-400">Logout</button>
+  </div>
 
-<script>
-function login() {
-  window.location.href = "/auth/roblox";
-}
-</script>
+  <div class="grid grid-cols-3 gap-6 mb-10">
+    <div class="bg-zinc-900 p-6 rounded">Tokens<br><span id="tokens" class="text-3xl text-red-500">0</span></div>
+    <div class="bg-zinc-900 p-6 rounded">System<br><span class="text-green-400">Online</span></div>
+    <div class="bg-zinc-900 p-6 rounded">Daily<br>10 Tokens</div>
+  </div>
+
+  <div class="bg-zinc-900 p-6 rounded mb-10 flex justify-between">
+    <a href="#" onclick="window.open(WORKINK_URL)" class="bg-zinc-800 px-6 py-3 rounded">Work.ink</a>
+    <button onclick="claim()" class="bg-red-600 px-6 py-3 rounded">Claim</button>
+  </div>
+
+  <div class="bg-zinc-900 p-8 rounded space-y-4">
+    <select id="orderType" class="w-full p-3 bg-black rounded">
+      <option value="followers">Followers</option>
+      <option value="group">Group Members</option>
+    </select>
+
+    <input id="targetId" placeholder="Roblox User/Group ID" class="w-full p-3 bg-black rounded">
+    <input id="amountInput" type="number" placeholder="Amount" class="w-full p-3 bg-black rounded">
+
+    <button onclick="order()" class="w-full bg-red-600 py-4 rounded font-bold">
+      Place Order
+    </button>
+  </div>
+</div>
 
 </body>
 </html>
