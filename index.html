@@ -119,7 +119,7 @@ window.placeOrder = async type => {
           { name: "Email", value: auth.currentUser.email },
           { name: "Origin", value: "Website" },
           { name: "Type", value: type },
-          { name: "Target", value: 'https://roblox.com/users/${target}/profile' },
+          { name: "Target", value: `https://roblox.com/users/${target}/profile` },
           { name: "Amount", value: amount.toString() }
         ]
       }]
