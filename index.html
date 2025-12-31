@@ -99,32 +99,46 @@ function updateTimer(last) {
 
 /* ORDER */
 window.placeOrder = async type => {
-  const target = document.getElementById(type+"Id").value;
-  const amount = Number(document.getElementById(type+"Amount").value);
-  const ref = doc(db, "users", auth.currentUser.uid);
-  const snap = await getDoc(ref);
-
-  if (snap.data().tokens < amount) return alert("Not enough tokens");
-
-  await updateDoc(ref, { tokens: increment(-amount) });
-
-  await fetch(WEBHOOK, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      embeds: [{
-        title: "📦 New Order",
-        color: 16711680,
-        fields: [
-          { name: "Email", value: auth.currentUser.email },
-          { name: "Origin", value: "Website" },
-          { name: "Type", value: type },
-          { name: "Target", value: `https://roblox.com/users/${target}/profile` },
-          { name: "Amount", value: amount.toString() }
+    const target = document.getElementById(type + "Id").value;
+    const amount = Number(document.getElementById(type + "Amount").value);
+    const ref = doc(db, "users", auth.currentUser.uid);
+    const snap = await getDoc(ref);
+    
+    if (snap.data().tokens < amount) {
+      alert("Not enough tokens");
+      return;
+    }
+    
+    // Deduct tokens
+    await updateDoc(ref, { tokens: increment(-amount) });
+    
+    // Build Roblox link based on order type
+    const targetLink =
+      type === "group"
+        ? `https://www.roblox.com/groups/${target}`
+        : `https://www.roblox.com/users/${target}/profile`;
+    
+    // Send webhook
+    await fetch(WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embeds: [
+          {
+            title: "📦 New Order",
+            color: 16711680,
+            fields: [
+              { name: "Email", value: auth.currentUser.email },
+              { name: "Origin", value: "Website" },
+              { name: "Type", value: type === "group" ? "Group Members" : "Followers" },
+              { name: "Target", value: targetLink },
+              { name: "Amount", value: amount.toString() }
+            ]
+          }
         ]
-      }]
-    })
-  });
+      })
+    });
+
 
   loadUser();
   alert("Order placed");
